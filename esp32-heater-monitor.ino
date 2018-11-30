@@ -10,13 +10,19 @@
 #define SO   (gpio_num_t)32 //not used. should look into avoiding it alltogether.
 #define SI   (gpio_num_t)25
 #define SCLK (gpio_num_t)27
-#define SS   (gpio_num_t)34
+#define SS1  (gpio_num_t)35
+#define SS2  (gpio_num_t)34
 
-SlaveSPI slave(HSPI_HOST);  // VSPI_HOST
+SlaveSPI spi1(VSPI_HOST); 
+SlaveSPI spi2(HSPI_HOST);  
 
 const size_t MAX_SIZE = 8;
-Array<int,MAX_SIZE> array_current;
-Array<int,MAX_SIZE> array_new;
+Array<int,MAX_SIZE> spi1_array_current;
+Array<int,MAX_SIZE> spi1_array_new;
+Array<int,MAX_SIZE> spi2_array_current;
+Array<int,MAX_SIZE> spi2_array_new;
+
+bool isChanged = false;
 
 /* LCD 5V -> 3.3v via TI chip
  * Pin 1 = CS - not used
@@ -33,32 +39,90 @@ Array<int,MAX_SIZE> array_new;
  * Pin 4 = mode
  */
 
+
 void setup() {
+  Serial.setDebugOutput(true);
     Serial.begin(115200);
-    slave.begin(SO, SI, SCLK, SS, 8);
+    spi1.begin(SO, SI, SCLK, SS1, 8);
+    spi2.begin(SO, SI, SCLK, SS2, 8);
+    
+}
+
+void printBinPadded(int nb){
+  int   i = 7;
+
+  while (i >= 0) {
+    if ((nb >> i) & 1)
+      Serial.print("1");
+    else
+      Serial.print("0");
+    --i;
+  }
 }
 
 void loop() {
-
-    if (slave.getInputStream()->length() && digitalRead(SS) == HIGH) {  // Slave SPI has got data in.
-        while (slave.getInputStream()->length()) { //while we have content
-            array_new.push_back(slave.readByte()); //lets store it
-        }
+    if (spi1.getInputStream()->length() && digitalRead(SS1) == HIGH) {  // spi2 SPI has got data in.
         
-        for(int i=0; i<array_new.size(); i++){
-          if(array_current[i] != array_new[i]){ //message has changed, lets print it
-            for(int j=0; j<array_new.size(); j++){
-              Serial.print("0x");
-              Serial.print(array_new[j], HEX);
-              Serial.print(" ");
-            }
-            Serial.println(); //newline
-//           Serial << array_new << endl;
-           array_current = array_new; //save off for later comparison
-           break; //we dont need to continue comparing.
-          }
+        while (spi1.getInputStream()->length()) { //while we have content
+            spi1_array_new.push_back(spi1.readByte()); //lets store it
         }
-        array_new.clear(); //reset for next round
+        if(spi1_array_new.size() < 8){ //message is too short, lets start over
+            spi1_array_new = spi1_array_current;
+          }
+        
+        for(int i=0; i<spi1_array_new.size(); i++){
+          if(spi1_array_current[i] != spi1_array_new[i]){ 
+            isChanged=true;   //set flag so change is printed
+            spi1_array_current = spi1_array_new; //save off for later use
+            break; //we dont need to continue comparing.
+            }
+          }
+        spi1_array_new.clear(); //reset for next round
+    
+      while (digitalRead(SS2) == LOW){
+        //wait for the second half of the message
+      }
+      if (spi2.getInputStream()->length() && digitalRead(SS2) == HIGH) {  // spi2 SPI has got data in.
+          
+          while (spi2.getInputStream()->length()) { //while we have content
+              spi2_array_new.push_back(spi2.readByte()); //lets store it
+          }
+          if(spi2_array_new.size() < 8){ //message is too short, lets start over
+            spi2_array_new = spi2_array_current;
+            }
+          for(int k=0; k<spi2_array_new.size(); k++){
+            if(spi2_array_current[k] != spi2_array_new[k]){ //message has changed, lets print it
+              isChanged=true;            
+              spi2_array_current = spi2_array_new; //save off for later comparison
+              break; //we dont need to continue comparing.
+              }
+           }
+          spi2_array_new.clear(); //reset for next round
+      }
+    }
+    if(isChanged){
+      Serial.print(millis());
+      Serial.print(" ");
+      for(int a = 0; a<spi1_array_current.size(); a++){
+        Serial.print("0x");
+        Serial.printf("%02x",spi1_array_current[a]);
+        Serial.print(" ");
+        
+        Serial.print("0b");
+        printBinPadded(spi1_array_current[a]);
+        Serial.print(" ");
+      }
+      for(int b = 0; b<spi2_array_current.size(); b++){
+        Serial.print("0x");
+        Serial.printf("%02x",spi2_array_current[b]);
+        Serial.print(" ");
+        
+        Serial.print("0b");
+        printBinPadded(spi2_array_current[b]);
+        Serial.print(" ");
+      }
+      Serial.print("\n");
+      isChanged=false;
     }
 
 }
