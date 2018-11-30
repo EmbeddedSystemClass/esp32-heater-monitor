@@ -1,3 +1,13 @@
+/*
+ *  fahrenheat fsswh2004 SPI monitor  
+ *  
+ *  The plan is to put current state on MQTT and make adjustments to the 
+ *  current setting based on another topic. This will probably work by 
+ *  establishing the mode to HOLD and then setting the temperature. 
+ *  Monitoring the LCD buttons will probably help.
+ *  
+ */
+ 
 #include <Array.h> //https://github.com/janelia-arduino/Array/ so I font have to ;)
 
 /**
@@ -25,11 +35,11 @@ Array<int,MAX_SIZE> spi2_array_new;
 bool isChanged = false;
 
 /* LCD 5V -> 3.3v via TI chip
- * Pin 1 = CS - not used
- * Pin 2 = CLK - GPIO27
+ * Pin 1 = CS -   GPIO35    SS1 (top of LCD)
+ * Pin 2 = CLK -  GPIO27
  * Pin 3 = MOSI - GPIO25
  * Pin 4 = CS - not used
- * Pin 5 = CS - GPIO34
+ * Pin 5 = CS -   GPIO34    SS2 (bottom of LCD)
  */
 
 /* Buttons (pull low) 
