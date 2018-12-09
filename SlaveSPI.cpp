@@ -1,9 +1,9 @@
 /**
  * SlaveSPI
- * 
+ *
  *  Created on: Jul 1, 2018
  *       Email: ipas.th@gmail.com
- *      Author: ipas 
+ *      Author: ipas
  */
 
 #include "SlaveSPI.h"
@@ -22,7 +22,7 @@ void call_matcher_after_transmission(spi_slave_transaction_t * trans) {  // Call
 }
 
 /**
- * Constructor 
+ * Constructor
  */
 SlaveSPI::SlaveSPI(spi_host_device_t spi_host) {
     this->spi_host = spi_host;
@@ -32,9 +32,8 @@ SlaveSPI::SlaveSPI(spi_host_device_t spi_host) {
         temp[i] = SlaveSPIVector[i];
     }
     temp[vector_size++] = this;  // Put this instance into
-    Serial.print("deleting slave spi vector");
+
     delete[] SlaveSPIVector;     // Delete the old one
-        Serial.print("deleted slave spi vector");
 
     SlaveSPIVector = temp;       // Point to the new one
 
@@ -44,18 +43,18 @@ SlaveSPI::SlaveSPI(spi_host_device_t spi_host) {
 
 /**
  * To initialize the Slave-SPI module.
- */ 
+ */
 esp_err_t SlaveSPI::begin(gpio_num_t so, gpio_num_t si, gpio_num_t sclk, gpio_num_t ss, size_t buffer_size, int (*callback)()) {
     callback_after_transmission = callback;
 
     max_buffer_size = buffer_size;  // should set to the minimum transaction length
-    tx_buffer       = (uint8_t *)heap_caps_malloc(max(max_buffer_size, 32), SPI_MALLOC_CAP);
-    rx_buffer       = (uint8_t *)heap_caps_malloc(max(max_buffer_size, 32), SPI_MALLOC_CAP);
-    
+    tx_buffer       = (uint8_t *)heap_caps_malloc(32, SPI_MALLOC_CAP);
+    rx_buffer       = (uint8_t *)heap_caps_malloc(32, SPI_MALLOC_CAP);
+
     // for (int i = 0; i < max_buffer_size; i++) { tx_buffer[i] = 0; rx_buffer[i] = 0; }  // XXX: memset
     memset(tx_buffer, 0, max_buffer_size);
     memset(rx_buffer, 0, max_buffer_size);
-    
+
     /*
     Initialize the Slave-SPI module:
     */
@@ -92,19 +91,19 @@ esp_err_t SlaveSPI::begin(gpio_num_t so, gpio_num_t si, gpio_num_t sclk, gpio_nu
     /*
     Prepare transaction queue:
 
-    The amount of data written to the buffers is limited by the __length__ member of the transaction structure: 
-        the driver will never read/write more data than indicated there. 
-    The __length__ cannot define the actual length of the SPI transaction, 
-        this is determined by the master as it drives the clock and CS lines. 
-    
-    The actual length transferred can be read from the __trans_len__ member 
-        of the spi_slave_transaction_t structure after transaction. 
-    
+    The amount of data written to the buffers is limited by the __length__ member of the transaction structure:
+        the driver will never read/write more data than indicated there.
+    The __length__ cannot define the actual length of the SPI transaction,
+        this is determined by the master as it drives the clock and CS lines.
+
+    The actual length transferred can be read from the __trans_len__ member
+        of the spi_slave_transaction_t structure after transaction.
+
     In case the length of the transmission is larger than the buffer length,
-        only the start of the transmission will be sent and received, 
-        and the __trans_len__ is set to __length__ instead of the actual length. 
-    It's recommended to set __length__ longer than the maximum length expected if the __trans_len__ is required. 
-    
+        only the start of the transmission will be sent and received,
+        and the __trans_len__ is set to __length__ instead of the actual length.
+    It's recommended to set __length__ longer than the maximum length expected if the __trans_len__ is required.
+
     In case the transmission length is shorter than the buffer length, only data up to the length of the buffer will be exchanged.
     */
     transaction = new spi_slave_transaction_t{
@@ -114,7 +113,7 @@ esp_err_t SlaveSPI::begin(gpio_num_t so, gpio_num_t si, gpio_num_t sclk, gpio_nu
         .rx_buffer = rx_buffer,             //< rx buffer, or NULL for no MISO phase
         .user      = NULL                   //< User-defined variable. Can be used to store e.g. transaction ID.
     };
-    
+
     err = initTransmissionQueue();
     if (err != ESP_OK) {
         DEBUG_PRINT(err);
@@ -123,20 +122,21 @@ esp_err_t SlaveSPI::begin(gpio_num_t so, gpio_num_t si, gpio_num_t sclk, gpio_nu
 }
 
 /**
- * Called after a transaction is queued and ready for pickup by master. 
+ * Called after a transaction is queued and ready for pickup by master.
  */
-void SlaveSPI::callbackAfterQueueing(spi_slave_transaction_t * trans) {  
+void SlaveSPI::callbackAfterQueueing(spi_slave_transaction_t * trans) {
     // TODO: data ready -- trig hand-check pin to high
     // WRITE_PERI_REG(GPIO_OUT_W1TS_REG, (1<<GPIO_HANDSHAKE));
 }
 
 /**
- * Called after transaction is sent/received. 
+ * Called after transaction is sent/received.
  */
 void SlaveSPI::callbackAfterTransmission(spi_slave_transaction_t * trans) {
     // Aggregate in-comming to input_stream
     for (int i = 0; i < (transaction->trans_len >> 3); i++) {  // Copy by actual received. Div by 8, to byte
-        input_stream += ((char *)transaction->rx_buffer)[i];   // Aggregate
+        uint8_t data = ((char *)transaction->rx_buffer)[i];   // Aggregate
+        input_stream.push_back(data);
         ((char *)transaction->rx_buffer)[i] = 0;               // Clean
     }
 
@@ -157,16 +157,9 @@ void SlaveSPI::callbackAfterTransmission(spi_slave_transaction_t * trans) {
 }
 
 esp_err_t SlaveSPI::initTransmissionQueue() {
-    // Prepare out-going data for next request by the master
-    // int i = 0;
-    // for (; i < max_buffer_size && i < output_stream.length(); i++) {  // NOT over buffer size
-    //     ((char *)transaction->tx_buffer)[i] = output_stream[i];       // Copy prepared data to out-going queue
-    // }
-    // output_stream = &(output_stream[i]);  // Segmentation. The remain is left for future.
-
-    int size = min(max_buffer_size, output_stream.length());                  // NOT over the buffer's size.
-    memcpy((void *)transaction->tx_buffer, output_stream.getBuffer(), size);  // Rearrange the tx data.
-    output_stream.remove(0, size);                                            // Segmentation. Remain for future.
+    int size = output_stream.size();                  // NOT over the buffer's size.
+    memcpy((void *)transaction->tx_buffer, output_stream.data(), size);  // Rearrange the tx data.
+    output_stream.clear();                                            // Segmentation. Remain for future.
 
     // Queue. Ready for sending if receiving
     return spi_slave_queue_trans(spi_host, transaction, portMAX_DELAY);
@@ -174,25 +167,23 @@ esp_err_t SlaveSPI::initTransmissionQueue() {
 
 /**
  * To read/write SPI queue data.
- */ 
-void SlaveSPI::write(array_t & array) {  // used to queue data to transmit
-    output_stream += array;
+ */
+void SlaveSPI::write(std::vector<uint8_t> & array) {  // used to queue data to transmit
+    for(int i = 0; i< array.size(); i++ ){
+        output_stream.push_back(array[i]);
+    }
 }
 
-void SlaveSPI::readToArray(array_t & array) {  // move read data into buf
-    array += input_stream;
+void SlaveSPI::readToArray(std::vector<uint8_t> & array) {  // move read data into buf
+    for( int i =0; i< input_stream.size(); i++){
+        array.push_back(input_stream[i]);
+    }
     input_stream.clear();
-}
-
-int SlaveSPI::readToBytes(void * buf, int size) {
-    int ret = input_stream.getBytes(buf, size);
-    input_stream.clear();
-    return ret;
 }
 
 uint8_t SlaveSPI::readByte() {
     uint8_t tmp = input_stream[0];
-    input_stream.remove(0, 1);
+    input_stream.pop_front();
     return tmp;
 }
 

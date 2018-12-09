@@ -5,20 +5,19 @@
 #include <SPI.h>
 #include <driver/spi_slave.h>
 
-// #define GPIO_HANDSHAKE 
+// #define GPIO_HANDSHAKE
 
 #define SPI_QUEUE_SIZE 1
 #define SPI_MODE       SPI_MODE0
-#define SPI_DMA        0  // XXX: Still fail of use DMA whether 1 or 2. Don't know why. 
+#define SPI_DMA        0  // XXX: Still fail of use DMA whether 1 or 2. Don't know why.
 
 #define SPI_DEFAULT_MAX_BUFFER_SIZE 128
 
 #define SPI_MALLOC_CAP (MALLOC_CAP_DMA | MALLOC_CAP_32BIT)
 // #define SPI_MALLOC_CAP (MALLOC_CAP_DEFAULT | MALLOC_CAP_8BIT)
 
-#include "SimpleArray.h"
-typedef SimpleArray<uint8_t, int> array_t;
-
+#include "vector"
+#include "deque"
 
 class SlaveSPI {
 
@@ -28,9 +27,9 @@ class SlaveSPI {
   private:
     static SlaveSPI ** SlaveSPIVector;
     static int         vector_size;
-    
-    array_t input_stream  = array_t(SPI_DEFAULT_MAX_BUFFER_SIZE);  // Used to save incoming data
-    array_t output_stream = array_t(SPI_DEFAULT_MAX_BUFFER_SIZE);  // Used to buffer outgoing data
+
+    std::deque<uint8_t> input_stream;  // Used to save incoming data
+    std::vector<uint8_t> output_stream;  // Used to buffer outgoing data
 
     size_t max_buffer_size;  // Length of transaction buffer (maximum transmission size)
     uint8_t * tx_buffer;
@@ -55,20 +54,19 @@ class SlaveSPI {
     esp_err_t begin(gpio_num_t so, gpio_num_t si, gpio_num_t sclk, gpio_num_t ss,
                     size_t buffer_size = SPI_DEFAULT_MAX_BUFFER_SIZE, int (*callback)() = callbackDummy);
 
-    void write(array_t & array);  // Queue data then wait for transmission
-    void readToArray(array_t & array);
-    int  readToBytes(void * buf, int size);
+    void write(std::vector<uint8_t>&);  // Queue data then wait for transmission
+    void readToArray(std::vector<uint8_t>&);
     uint8_t readByte();
-    
-    inline array_t * getInputStream() { return &input_stream; }
+
+    inline std::deque<uint8_t> * getInputStream() { return &input_stream; }
     inline void      flushInputStream() { input_stream.clear(); }
 };
 
 
 /**
  * XXX: quick_fix_spi_timing:
- * 
- * The recceived data from MISO are shifted by one bit in every byte. 
+ *
+ * The recceived data from MISO are shifted by one bit in every byte.
  * Helped by https://github.com/espressif/arduino-esp32/issues/1427
  */
 #include <soc/spi_struct.h>
